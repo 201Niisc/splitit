@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SplitIt</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+    --accent: #5b6af0; --accent2: #48c78e; --danger: #f14668;
+    --text: #e8eaf6; --muted: #6b7280; --border: #2d3148;
+    --radius: 12px; --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { width: 280px; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-header { padding: 24px 20px 16px; border-bottom: 1px solid var(--border); }
+  .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+  .logo span { color: var(--accent2); }
+  .groups-list { flex: 1; overflow-y: auto; padding: 12px; }
+  .group-item { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius);
+    cursor: pointer; transition: background 0.15s; margin-bottom: 4px; }
+  .group-item:hover { background: var(--surface2); }
+  .group-item.active { background: var(--accent); }
+  .group-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--surface2);
+    display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+  .group-item.active .group-icon { background: rgba(255,255,255,0.2); }
+  .group-name { font-weight: 600; font-size: 0.9rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .group-count { font-size: 0.75rem; color: var(--muted); }
+  .group-item.active .group-count { color: rgba(255,255,255,0.7); }
+  .sidebar-footer { padding: 16px; border-top: 1px solid var(--border); }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-size: 1.2rem; font-weight: 700; }
+  .topbar-members { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .content { flex: 1; overflow-y: auto; padding: 28px; display: grid;
+    grid-template-columns: 1fr 340px; gap: 24px; align-content: start; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; box-shadow: var(--shadow); }
+  .card-title { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.8px; margin-bottom: 16px; }
+
+  /* Expenses */
+  .expense-wrap { border-bottom: 1px solid var(--border); }
+  .expense-wrap:last-child { border-bottom: none; }
+  .expense-item { display: flex; align-items: center; gap: 14px; padding: 12px 0;
+    cursor: pointer; }
+  .expense-item:hover .expense-desc { color: var(--accent); }
+  .expense-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--surface2);
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .expense-info { flex: 1; min-width: 0; }
+  .expense-desc { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; transition: color 0.15s; }
+  .expense-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .expense-amount { font-weight: 700; font-size: 1rem; color: var(--accent2); white-space: nowrap; }
+  .expense-chevron { color: var(--muted); font-size: 0.75rem; transition: transform 0.2s; flex-shrink: 0; }
+  .expense-wrap.open .expense-chevron { transform: rotate(180deg); }
+  .expense-delete { background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; font-size: 0.9rem; transition: color 0.15s; }
+  .expense-delete:hover { color: var(--danger); }
+
+  /* Expense breakdown */
+  .expense-breakdown { display: none; background: var(--surface2); border-radius: 8px;
+    margin: 0 0 12px 54px; padding: 10px 14px; }
+  .expense-wrap.open .expense-breakdown { display: block; }
+  .breakdown-row { display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 0; font-size: 0.82rem; border-bottom: 1px solid var(--border); gap: 8px; }
+  .breakdown-row:last-child { border-bottom: none; }
+  .breakdown-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .badge { font-size: 0.65rem; padding: 2px 7px; border-radius: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge-paid { background: rgba(72,199,142,0.15); color: var(--accent2); }
+  .badge-owes { background: rgba(241,70,104,0.12); color: var(--danger); }
+  .expense-counter { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 700;
+    background: rgba(91,106,240,0.15); color: var(--accent); white-space: nowrap; }
+  .expense-counter.done { background: rgba(72,199,142,0.15); color: var(--accent2); }
+  .btn-share-paid { background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; transition: all 0.15s; }
+  .btn-share-paid:hover { border-color: var(--accent2); color: var(--accent2); }
+  .btn-share-paid--done { border-color: var(--accent2); color: var(--accent2); background: rgba(72,199,142,0.12); }
+  .btn-share-paid--done:hover { background: rgba(220,53,69,0.1); border-color: var(--danger); color: var(--danger); }
+
+  /* Balances */
+  .balance-row { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .balance-row:last-child { border-bottom: none; }
+  .balance-name { font-weight: 600; font-size: 0.9rem; }
+  .balance-amount { font-weight: 700; font-size: 0.95rem; }
+  .balance-amount.pos { color: var(--accent2); }
+  .balance-amount.neg { color: var(--danger); }
+  .balance-amount.zero { color: var(--muted); }
+  .owed-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .owed-row:last-child { border-bottom: none; }
+  .owed-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 6px; }
+  .owed-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; margin: 6px 0; overflow: hidden; }
+  .owed-bar-fill { height: 100%; background: var(--accent2); border-radius: 4px; transition: width 0.3s; }
+  .owed-detail { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
+  .owed-debtor-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 2px 0 2px 10px; }
+  .owed-debtor-paid { color: var(--accent2); font-weight: 600; }
+  .owed-debtor-remaining { color: var(--danger); font-weight: 600; }
+
+  .settlement-item { background: var(--surface2); border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .settlement-item:last-child { margin-bottom: 0; }
+  .s-from { color: var(--danger); font-weight: 600; }
+  .s-to { color: var(--accent2); font-weight: 600; }
+  .s-amount { font-weight: 700; color: var(--text); margin-left: auto; }
+  .btn-paid { background: none; border: 1px solid var(--accent2); color: var(--accent2);
+    border-radius: 6px; padding: 3px 10px; font-size: 0.75rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn-paid:hover { background: var(--accent2); color: #fff; }
+  .payment-history { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .payment-history-title { font-size: 0.75rem; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+  .payment-row { display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.8rem; padding: 5px 0; border-bottom: 1px solid var(--border); gap: 8px; }
+  .payment-row:last-child { border-bottom: none; }
+  .payment-row .undo { background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+  .payment-row .undo:hover { color: var(--danger); }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2);
+    display: inline-block; margin-left: 8px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px;
+    border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #4a59e0; }
+  .btn-success { background: var(--accent2); color: #fff; }
+  .btn-success:hover { background: #3ab07e; }
+  .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--border); }
+  .btn-sm { padding: 7px 12px; font-size: 0.8rem; }
+
+  /* Forms / Modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex;
+    align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+  .overlay.hidden { display: none; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px; width: 100%; max-width: 480px; box-shadow: var(--shadow); }
+  .modal h2 { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .field input, .field select { width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 0.9rem; outline: none; }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--muted); }
+  .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .checkbox-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+    cursor: pointer; font-size: 0.85rem; transition: all 0.15s; user-select: none; }
+  .checkbox-chip input { display: none; }
+  .checkbox-chip.checked { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+  .empty p { font-size: 0.9rem; }
+
+  /* Welcome screen */
+  .welcome { flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; padding: 40px; }
+  .welcome h1 { font-size: 2rem; font-weight: 800; margin-bottom: 10px; }
+  .welcome p { color: var(--muted); margin-bottom: 28px; font-size: 1rem; }
+
+  /* Members tag input */
+  .tag-input { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .tag-input.focused { border-color: var(--accent); }
+  .tag { display: flex; align-items: center; gap: 4px; background: var(--accent);
+    color: #fff; border-radius: 20px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; }
+  .tag-remove { cursor: pointer; opacity: 0.7; font-size: 0.9rem; }
+  .tag-remove:hover { opacity: 1; }
+  .tag-input input { border: none; background: transparent; color: var(--text);
+    outline: none; font-size: 0.9rem; flex: 1; min-width: 80px; }
+  .tag-input input::placeholder { color: var(--muted); }
+
+  .no-group { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--muted); }
+
+  /* Mobile hamburger */
+  .hamburger { display: none; background: none; border: none; color: var(--text); font-size: 1.4rem;
+    cursor: pointer; padding: 4px 8px; margin-right: 8px; line-height: 1; }
+  .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 49; }
+
+  /* ── Mobile ────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .hamburger { display: block; }
+
+    .sidebar { position: fixed; top: 0; left: 0; height: 100vh; z-index: 50;
+      transform: translateX(-100%); transition: transform 0.25s ease; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-backdrop.open { display: block; }
+
+    .content { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+
+    .topbar { padding: 12px 16px; }
+    .topbar-title { font-size: 1rem; }
+    .topbar > div:last-child { gap: 6px; }
+    .btn-sm { padding: 6px 10px; font-size: 0.75rem; }
+
+    .expense-breakdown { margin-left: 0; }
+    .breakdown-row { flex-wrap: wrap; gap: 6px; }
+
+    .modal { border-radius: 16px 16px 0 0; position: fixed; bottom: 0; left: 0; right: 0;
+      max-width: 100%; max-height: 90vh; overflow-y: auto; padding: 20px 16px; }
+    .overlay { align-items: flex-end; }
+
+    .settlement-item { flex-wrap: wrap; }
+    .s-amount { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">Split<span>It</span><span class="sync-dot" title="Live sync active"></span></div>
+    </div>
+    <div class="groups-list" id="groupsList"></div>
+    <div class="sidebar-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="openModal('groupModal')">+ New Group</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main" id="mainArea">
+    <div class="no-group" style="flex-direction:column;gap:16px">
+      <button class="hamburger" style="display:block;font-size:1.8rem" onclick="openSidebar()">☰</button>
+      <span>Create or select a group to get started</span>
+    </div>
+  </div>
+</div>
+
+<!-- Group Modal -->
+<div class="overlay hidden" id="groupModal">
+  <div class="modal">
+    <h2>Create Group</h2>
+    <div class="field">
+      <label>Group Name</label>
+      <input id="gName" type="text" placeholder="e.g. Trip to Vegas"/>
+    </div>
+    <div class="field">
+      <label>Members (press Enter to add)</label>
+      <div class="tag-input" id="memberTagInput">
+        <input id="memberInput" type="text" placeholder="Type a name and press Enter"/>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('groupModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createGroup()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Modal -->
+<div class="overlay hidden" id="expenseModal">
+  <div class="modal">
+    <h2>Add Expense</h2>
+    <div class="field">
+      <label>Description</label>
+      <input id="eDesc" type="text" placeholder="e.g. Dinner at Luigi's"/>
+    </div>
+    <div class="field">
+      <label>Amount (€)</label>
+      <input id="eAmount" type="number" min="0.01" step="0.01" placeholder="0.00"/>
+    </div>
+    <div class="field">
+      <label>Paid By</label>
+      <select id="ePaidBy"></select>
+    </div>
+    <div class="field">
+      <label>Split Among</label>
+      <div class="checkbox-group" id="eSplitAmong"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('expenseModal')">Cancel</button>
+      <button class="btn btn-success" onclick="addExpense()">Add Expense</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let groups = [];
+let currentGroup = null;
+let members = [];
+let lastVersion = -1;
+const icons = ['🏖️','🏕️','🎉','🍕','🏠','✈️','🎮','🛒','🍺','🎶'];
+
+// ── API helpers ──────────────────────────────────────────
+const api = {
+  get: (url) => fetch(url).then(r => r.json()),
+  post: (url, data) => fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) }).then(r => r.json()),
+  del: (url) => fetch(url, { method:'DELETE' })
+};
+
+// ── Auto-refresh polling ──────────────────────────────────
+async function poll() {
+  try {
+    const { version } = await api.get('/api/version');
+    if (version !== lastVersion) {
+      lastVersion = version;
+      groups = await api.get('/api/groups');
+      renderSidebar();
+      if (currentGroup) {
+        const found = groups.find(g => g.id === currentGroup.id);
+        if (found) { currentGroup = found; await renderMain(); }
+      }
+    }
+  } catch(e) {}
+}
+setInterval(poll, 4000);
+
+// ── Init ─────────────────────────────────────────────────
+async function init() {
+  groups = await api.get('/api/groups');
+  const { version } = await api.get('/api/version');
+  lastVersion = version;
+  renderSidebar();
+  if (currentGroup) {
+    const found = groups.find(g => g.id === currentGroup.id);
+    if (found) selectGroup(found);
+  }
+}
+
+// ── Sidebar ───────────────────────────────────────────────
+function renderSidebar() {
+  const list = document.getElementById('groupsList');
+  if (groups.length === 0) {
+    list.innerHTML = '<div class="empty"><p>No groups yet</p></div>';
+    return;
+  }
+  list.innerHTML = groups.map((g, i) => `
+    <div class="group-item ${currentGroup?.id === g.id ? 'active' : ''}" onclick="selectGroup(${JSON.stringify(g).replace(/"/g,'&quot;')})">
+      <div class="group-icon">${icons[i % icons.length]}</div>
+      <div>
+        <div class="group-name">${esc(g.name)}</div>
+        <div class="group-count">${g.members.length} members</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Select group ──────────────────────────────────────────
+async function selectGroup(g) {
+  currentGroup = g;
+  closeSidebar();
+  renderSidebar();
+  await renderMain();
+}
+
+async function renderMain() {
+  const g = currentGroup;
+  if (!g) return;
+  const [expenses, balData, payments, expShares] = await Promise.all([
+    api.get(`/api/groups/${g.id}/expenses`),
+    api.get(`/api/groups/${g.id}/balances`),
+    api.get(`/api/groups/${g.id}/payments`),
+    api.get(`/api/groups/${g.id}/expense-shares`)
+  ]);
+  // Map: expenseId -> { person -> shareId }
+  const shareMap = {};
+  for (const s of expShares) {
+    if (!shareMap[s.expenseId]) shareMap[s.expenseId] = {};
+    shareMap[s.expenseId][s.person] = s.id;
+  }
+
+  const main = document.getElementById('mainArea');
+  main.innerHTML = `
+    <div class="topbar">
+      <div style="display:flex;align-items:center">
+        <button class="hamburger" onclick="openSidebar()">☰</button>
+        <div>
+          <div class="topbar-title">${esc(g.name)}</div>
+          <div class="topbar-members">${g.members.join(', ')}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-success btn-sm" onclick="openExpenseModal()">+ Add Expense</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteGroup('${g.id}')">Delete Group</button>
+      </div>
+    </div>
+    <div class="content">
+      <div>
+        <div class="card">
+          <div class="card-title">Expenses</div>
+          ${expenses.length === 0 ? '<div class="empty"><div class="empty-icon">🧾</div><p>No expenses yet</p></div>' :
+            expenses.slice().reverse().map(e => {
+              const share = e.amount / e.splitAmong.length;
+              const paid = shareMap[e.id] || {};
+              const nonPayers = e.splitAmong.filter(m => m !== e.paidBy);
+              const repaidCount = nonPayers.filter(m => paid[m]).length;
+              const total = nonPayers.length;
+              const allDone = total > 0 && repaidCount === total;
+              const counterLabel = total === 0 ? '' :
+                `<span class="expense-counter${allDone ? ' done' : ''}">${repaidCount}/${total} repaid</span>`;
+              const rows = e.splitAmong.map(m => {
+                const isPayer = m === e.paidBy;
+                const net = isPayer ? e.amount - share : -share;
+                const hasPaid = !isPayer && paid[m];
+                const shareId = hasPaid ? paid[m] : null;
+                const actionBtn = isPayer ? '' :
+                  hasPaid
+                    ? `<button class="btn-share-paid btn-share-paid--done" onclick="event.stopPropagation();unmarkShare('${shareId}')" title="Click to undo">✓ Paid</button>`
+                    : `<button class="btn-share-paid" onclick="event.stopPropagation();markShare('${e.id}','${esc(m)}')">Mark Paid</button>`;
+                return `<div class="breakdown-row">
+                  <span class="breakdown-name">${esc(m)}
+                    ${isPayer ? '<span class="badge badge-paid">paid</span>' : `<span class="badge badge-owes">owes</span>`}
+                  </span>
+                  <span style="color:${isPayer ? 'var(--accent2)' : hasPaid ? 'var(--muted)' : 'var(--danger)'};font-weight:700;${hasPaid ? 'text-decoration:line-through' : ''}">
+                    ${isPayer ? '+' : '-'}€${Math.abs(net).toFixed(2)} ${isPayer ? 'to collect' : `to ${esc(e.paidBy)}`}
+                  </span>
+                  ${actionBtn}
+                </div>`;
+              }).join('');
+              return `
+              <div class="expense-wrap" id="ew-${e.id}">
+                <div class="expense-item" onclick="toggleExpense('${e.id}')">
+                  <div class="expense-icon">💸</div>
+                  <div class="expense-info">
+                    <div class="expense-desc">${esc(e.description)}</div>
+                    <div class="expense-meta">Paid by <strong>${esc(e.paidBy)}</strong> · ${e.splitAmong.length} people · €${(share).toFixed(2)} each</div>
+                  </div>
+                  ${counterLabel}
+                  <div class="expense-amount">€${e.amount.toFixed(2)}</div>
+                  <span class="expense-chevron">▼</span>
+                  <button class="expense-delete" onclick="event.stopPropagation();deleteExpense('${e.id}')">✕</button>
+                </div>
+                <div class="expense-breakdown">${rows}</div>
+              </div>`;
+            }).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Balances</div>
+          ${Object.entries(balData.balances).map(([name, amt]) => `
+            <div class="balance-row">
+              <div class="balance-name">${esc(name)}</div>
+              <div class="balance-amount ${amt > 0.005 ? 'pos' : amt < -0.005 ? 'neg' : 'zero'}">
+                ${amt >= 0 ? '+' : ''}€${Math.abs(amt).toFixed(2)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Owed Summary</div>
+          ${(() => {
+            const owedMap = {};
+            for (const e of expenses) {
+              const share = e.amount / e.splitAmong.length;
+              for (const m of e.splitAmong) {
+                if (m === e.paidBy) continue;
+                if (!owedMap[e.paidBy]) owedMap[e.paidBy] = {};
+                if (!owedMap[e.paidBy][m]) owedMap[e.paidBy][m] = { total: 0, paid: 0 };
+                owedMap[e.paidBy][m].total += share;
+                if (shareMap[e.id]?.[m]) owedMap[e.paidBy][m].paid += share;
+              }
+            }
+            if (Object.keys(owedMap).length === 0)
+              return '<div class="empty"><div class="empty-icon">💰</div><p>No debts</p></div>';
+            return Object.entries(owedMap).map(([payer, debtors]) => {
+              const totalOwed = Object.values(debtors).reduce((s, d) => s + d.total, 0);
+              const totalPaid = Object.values(debtors).reduce((s, d) => s + d.paid, 0);
+              const remaining = totalOwed - totalPaid;
+              const pct = totalOwed > 0 ? Math.round((totalPaid / totalOwed) * 100) : 0;
+              const debtorRows = Object.entries(debtors).map(([debtor, d]) => {
+                const rem = d.total - d.paid;
+                return `<div class="owed-debtor-row">
+                  <span>${esc(debtor)}</span>
+                  <span>
+                    <span class="owed-debtor-paid">€${d.paid.toFixed(2)} paid</span>
+                    &nbsp;·&nbsp;
+                    <span class="${rem > 0.005 ? 'owed-debtor-remaining' : 'owed-debtor-paid'}">€${rem.toFixed(2)} left</span>
+                  </span>
+                </div>`;
+              }).join('');
+              return `<div class="owed-row">
+                <div class="owed-name">${esc(payer)} is owed <span style="color:var(--accent2)">€${remaining.toFixed(2)}</span> <span style="color:var(--muted);font-weight:400;font-size:0.8rem">of €${totalOwed.toFixed(2)}</span></div>
+                <div class="owed-bar-wrap"><div class="owed-bar-fill" style="width:${pct}%"></div></div>
+                <div class="owed-detail"><span>${pct}% collected</span><span>€${totalPaid.toFixed(2)} received</span></div>
+                ${debtorRows}
+              </div>`;
+            }).join('');
+          })()}
+        </div>
+        <div class="card">
+          <div class="card-title">Settlements</div>
+          ${balData.settlements.length === 0
+            ? '<div class="empty"><div class="empty-icon">✅</div><p>All settled up!</p></div>'
+            : balData.settlements.map(s => `
+              <div class="settlement-item">
+                <span class="s-from">${esc(s.from)}</span>
+                <span style="color:var(--muted)">owes</span>
+                <span class="s-to">${esc(s.to)}</span>
+                <span class="s-amount">€${s.amount.toFixed(2)}</span>
+                <button class="btn-paid" onclick="markPaid('${esc(s.from)}','${esc(s.to)}',${s.amount})">✓ Mark Paid</button>
+              </div>
+            `).join('')}
+          ${payments.length > 0 ? `
+            <div class="payment-history">
+              <div class="payment-history-title">Payment History</div>
+              ${payments.slice().reverse().map(p => `
+                <div class="payment-row">
+                  <span><strong>${esc(p.from)}</strong> paid <strong>${esc(p.to)}</strong></span>
+                  <span style="color:var(--accent2);font-weight:700">€${p.amount.toFixed(2)}</span>
+                  <button class="undo" onclick="undoPayment('${p.id}')" title="Undo">↩ undo</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Group CRUD ────────────────────────────────────────────
+async function createGroup() {
+  const name = document.getElementById('gName').value.trim();
+  // Flush any name typed but not yet confirmed with Enter
+  const pending = memberInput.value.trim();
+  if (pending && !members.includes(pending)) { members.push(pending); memberInput.value = ''; }
+  if (!name || members.length < 2) { alert('Enter a group name and at least 2 members.'); return; }
+  await api.post('/api/groups', { name, members });
+  closeModal('groupModal');
+  document.getElementById('gName').value = '';
+  members = [];
+  renderTags();
+  await init();
+  selectGroup(groups[groups.length - 1]);
+}
+
+async function deleteGroup(id) {
+  if (!confirm('Delete this group and all its expenses?')) return;
+  await api.del(`/api/groups/${id}`);
+  currentGroup = null;
+  document.getElementById('mainArea').innerHTML = '<div class="no-group">← Create or select a group</div>';
+  await init();
+}
+
+// ── Expense CRUD ──────────────────────────────────────────
+function openExpenseModal() {
+  const g = currentGroup;
+  document.getElementById('ePaidBy').innerHTML = g.members.map(m => `<option>${esc(m)}</option>`).join('');
+  document.getElementById('eSplitAmong').innerHTML = g.members.map(m => `
+    <label class="checkbox-chip checked">
+      <input type="checkbox" value="${esc(m)}" checked onchange="this.parentElement.classList.toggle('checked',this.checked)"/>
+      ${esc(m)}
+    </label>
+  `).join('');
+  document.getElementById('eDesc').value = '';
+  document.getElementById('eAmount').value = '';
+  openModal('expenseModal');
+}
+
+async function addExpense() {
+  const desc = document.getElementById('eDesc').value.trim();
+  const amount = parseFloat(document.getElementById('eAmount').value);
+  const paidBy = document.getElementById('ePaidBy').value;
+  const splitAmong = [...document.querySelectorAll('#eSplitAmong input:checked')].map(c => c.value);
+  if (!desc || isNaN(amount) || amount <= 0 || splitAmong.length === 0) {
+    alert('Fill in all fields and select at least one person to split with.'); return;
+  }
+  await api.post(`/api/groups/${currentGroup.id}/expenses`, { description: desc, amount, paidBy, splitAmong });
+  closeModal('expenseModal');
+  await renderMain();
+}
+
+function toggleExpense(id) {
+  document.getElementById('ew-' + id)?.classList.toggle('open');
+}
+
+async function deleteExpense(id) {
+  await api.del(`/api/expenses/${id}`);
+  await renderMain();
+}
+
+// ── Expense Shares ────────────────────────────────────────
+async function markShare(expenseId, person) {
+  await api.post(`/api/expenses/${expenseId}/shares`, { person });
+  await renderMain();
+}
+
+async function unmarkShare(shareId) {
+  await api.del(`/api/expense-shares/${shareId}`);
+  await renderMain();
+}
+
+// ── Payments ──────────────────────────────────────────────
+async function markPaid(from, to, amount) {
+  await api.post(`/api/groups/${currentGroup.id}/payments`, { from, to, amount });
+  await renderMain();
+}
+
+async function undoPayment(id) {
+  await api.del(`/api/payments/${id}`);
+  await renderMain();
+}
+
+// ── Sidebar (mobile) ──────────────────────────────────────
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebarBackdrop').classList.add('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarBackdrop').classList.remove('open');
+}
+
+// ── Modal helpers ─────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+document.querySelectorAll('.overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.add('hidden'); });
+});
+
+// ── Tag input for members ─────────────────────────────────
+const memberInput = document.getElementById('memberInput');
+const tagInput = document.getElementById('memberTagInput');
+
+memberInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = memberInput.value.trim();
+    if (val && !members.includes(val)) { members.push(val); renderTags(); }
+    memberInput.value = '';
+  } else if (e.key === 'Backspace' && memberInput.value === '') {
+    members.pop(); renderTags();
+  }
+});
+
+tagInput.addEventListener('click', () => memberInput.focus());
+
+function renderTags() {
+  const input = memberInput;
+  tagInput.innerHTML = '';
+  members.forEach((m, i) => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${esc(m)}<span class="tag-remove" onclick="removeMember(${i})">×</span>`;
+    tagInput.appendChild(tag);
+  });
+  tagInput.appendChild(input);
+  input.focus();
+}
+
+function removeMember(i) { members.splice(i, 1); renderTags(); }
+
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>

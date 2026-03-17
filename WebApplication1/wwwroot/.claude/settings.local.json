@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:4040/api/tunnels)",
+      "Bash(curl -s http://localhost:5139/api/groups -o /dev/null -w \"%{http_code}\")"
+    ]
+  }
+}

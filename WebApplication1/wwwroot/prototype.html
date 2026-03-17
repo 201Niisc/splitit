@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SplitIt – Spain Trip</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+    --accent: #5b6af0; --accent2: #48c78e; --danger: #f14668;
+    --text: #e8eaf6; --muted: #6b7280; --border: #2d3148;
+    --radius: 12px; --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  .app { display: flex; height: 100vh; overflow: hidden; }
+  .sidebar { width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-header { padding: 24px 20px 16px; border-bottom: 1px solid var(--border); }
+  .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+  .logo span { color: var(--accent2); }
+  .proto-badge { display: inline-block; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; background: rgba(241,70,104,0.18); color: var(--danger); border-radius: 6px; padding: 2px 7px; margin-left: 8px; vertical-align: middle; }
+  .groups-list { flex: 1; overflow-y: auto; padding: 12px; }
+  .group-item { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius); cursor: default; transition: background 0.15s; margin-bottom: 4px; }
+  .group-item.active { background: var(--accent); }
+  .group-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+  .group-item.active .group-icon { background: rgba(255,255,255,0.2); }
+  .group-name { font-weight: 600; font-size: 0.9rem; flex: 1; }
+  .group-count { font-size: 0.75rem; color: var(--muted); }
+  .group-item.active .group-count { color: rgba(255,255,255,0.7); }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-size: 1.2rem; font-weight: 700; }
+  .topbar-members { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .content { flex: 1; overflow-y: auto; padding: 28px; display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-content: start; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .card-title { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
+  .expense-wrap { border-bottom: 1px solid var(--border); }
+  .expense-wrap:last-child { border-bottom: none; }
+  .expense-item { display: flex; align-items: center; gap: 14px; padding: 12px 0; cursor: pointer; }
+  .expense-item:hover .expense-desc { color: var(--accent); }
+  .expense-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .expense-info { flex: 1; min-width: 0; }
+  .expense-desc { font-weight: 600; font-size: 0.9rem; transition: color 0.15s; }
+  .expense-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .expense-amount { font-weight: 700; font-size: 1rem; color: var(--accent2); white-space: nowrap; }
+  .expense-chevron { color: var(--muted); font-size: 0.75rem; transition: transform 0.2s; flex-shrink: 0; }
+  .expense-wrap.open .expense-chevron { transform: rotate(180deg); }
+  .expense-breakdown { display: none; background: var(--surface2); border-radius: 8px; margin: 0 0 12px 54px; padding: 10px 14px; }
+  .expense-wrap.open .expense-breakdown { display: block; }
+  .breakdown-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; font-size: 0.82rem; border-bottom: 1px solid var(--border); gap: 8px; }
+  .breakdown-row:last-child { border-bottom: none; }
+  .breakdown-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .badge { font-size: 0.65rem; padding: 2px 7px; border-radius: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge-paid { background: rgba(72,199,142,0.15); color: var(--accent2); }
+  .badge-owes { background: rgba(241,70,104,0.12); color: var(--danger); }
+  .expense-counter { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 700; background: rgba(91,106,240,0.15); color: var(--accent); white-space: nowrap; }
+  .expense-counter.done { background: rgba(72,199,142,0.15); color: var(--accent2); }
+  .share-paid-done { font-size: 0.7rem; color: var(--accent2); font-weight: 600; }
+  .balance-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .balance-row:last-child { border-bottom: none; }
+  .balance-name { font-weight: 600; font-size: 0.9rem; }
+  .balance-amount { font-weight: 700; font-size: 0.95rem; }
+  .balance-amount.pos { color: var(--accent2); }
+  .balance-amount.neg { color: var(--danger); }
+  .balance-amount.zero { color: var(--muted); }
+  .owed-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .owed-row:last-child { border-bottom: none; }
+  .owed-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 6px; }
+  .owed-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; margin: 6px 0; overflow: hidden; }
+  .owed-bar-fill { height: 100%; background: var(--accent2); border-radius: 4px; }
+  .owed-detail { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
+  .owed-debtor-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 2px 0 2px 10px; }
+  .owed-debtor-paid { color: var(--accent2); font-weight: 600; }
+  .owed-debtor-remaining { color: var(--danger); font-weight: 600; }
+  .settlement-item { background: var(--surface2); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .settlement-item:last-child { margin-bottom: 0; }
+  .s-from { color: var(--danger); font-weight: 600; }
+  .s-to { color: var(--accent2); font-weight: 600; }
+  .s-amount { font-weight: 700; color: var(--text); margin-left: auto; }
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .content { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+    .topbar { padding: 12px 16px; }
+    .expense-breakdown { margin-left: 0; }
+    .breakdown-row { flex-wrap: wrap; gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">Split<span>It</span> <span class="proto-badge">prototype</span></div>
+    </div>
+    <div class="groups-list">
+      <div class="group-item active">
+        <div class="group-icon">✈️</div>
+        <div>
+          <div class="group-name">Spain trip</div>
+          <div class="group-count">5 members</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Spain trip</div>
+        <div class="topbar-members">Nisanth, Brendon, Souvik, Thulasi, Rajkumar</div>
+      </div>
+    </div>
+    <div class="content">
+      <!-- Expenses -->
+      <div>
+        <div class="card">
+          <div class="card-title">Expenses</div>
+
+          <!-- Car Insurance -->
+          <div class="expense-wrap" id="ew-1">
+            <div class="expense-item" onclick="toggle('ew-1')">
+              <div class="expense-icon">💸</div>
+              <div class="expense-info">
+                <div class="expense-desc">Car Insurance</div>
+                <div class="expense-meta">Paid by <strong>Nisanth</strong> · 5 people · €60.00 each</div>
+              </div>
+              <span class="expense-counter">1/4 repaid</span>
+              <div class="expense-amount">€300.00</div>
+              <span class="expense-chevron">▼</span>
+            </div>
+            <div class="expense-breakdown">
+              <div class="breakdown-row">
+                <span class="breakdown-name">Nisanth <span class="badge badge-paid">paid</span></span>
+                <span style="color:var(--accent2);font-weight:700">+€240.00 to collect</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Brendon <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€60.00 to Nisanth</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Souvik <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€60.00 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Thulasi <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€60.00 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Rajkumar <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€60.00 to Nisanth</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Car -->
+          <div class="expense-wrap" id="ew-2">
+            <div class="expense-item" onclick="toggle('ew-2')">
+              <div class="expense-icon">💸</div>
+              <div class="expense-info">
+                <div class="expense-desc">Car</div>
+                <div class="expense-meta">Paid by <strong>Nisanth</strong> · 5 people · €91.60 each</div>
+              </div>
+              <span class="expense-counter">1/4 repaid</span>
+              <div class="expense-amount">€458.00</div>
+              <span class="expense-chevron">▼</span>
+            </div>
+            <div class="expense-breakdown">
+              <div class="breakdown-row">
+                <span class="breakdown-name">Nisanth <span class="badge badge-paid">paid</span></span>
+                <span style="color:var(--accent2);font-weight:700">+€366.40 to collect</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Brendon <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€91.60 to Nisanth</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Souvik <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€91.60 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Thulasi <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€91.60 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Rajkumar <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€91.60 to Nisanth</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bilbao Stay -->
+          <div class="expense-wrap" id="ew-3">
+            <div class="expense-item" onclick="toggle('ew-3')">
+              <div class="expense-icon">💸</div>
+              <div class="expense-info">
+                <div class="expense-desc">Bilbao Stay</div>
+                <div class="expense-meta">Paid by <strong>Nisanth</strong> · 5 people · €56.38 each</div>
+              </div>
+              <span class="expense-counter">1/4 repaid</span>
+              <div class="expense-amount">€281.90</div>
+              <span class="expense-chevron">▼</span>
+            </div>
+            <div class="expense-breakdown">
+              <div class="breakdown-row">
+                <span class="breakdown-name">Nisanth <span class="badge badge-paid">paid</span></span>
+                <span style="color:var(--accent2);font-weight:700">+€225.52 to collect</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Brendon <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€56.38 to Nisanth</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Souvik <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€56.38 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Thulasi <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€56.38 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Rajkumar <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€56.38 to Nisanth</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ronda Stay -->
+          <div class="expense-wrap" id="ew-4">
+            <div class="expense-item" onclick="toggle('ew-4')">
+              <div class="expense-icon">💸</div>
+              <div class="expense-info">
+                <div class="expense-desc">Ronda Stay</div>
+                <div class="expense-meta">Paid by <strong>Nisanth</strong> · 5 people · €21.87 each</div>
+              </div>
+              <span class="expense-counter">1/4 repaid</span>
+              <div class="expense-amount">€109.35</div>
+              <span class="expense-chevron">▼</span>
+            </div>
+            <div class="expense-breakdown">
+              <div class="breakdown-row">
+                <span class="breakdown-name">Nisanth <span class="badge badge-paid">paid</span></span>
+                <span style="color:var(--accent2);font-weight:700">+€87.48 to collect</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Brendon <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€21.87 to Nisanth</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Souvik <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€21.87 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Thulasi <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€21.87 to Nisanth</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Rajkumar <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€21.87 to Nisanth</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Granada Stay -->
+          <div class="expense-wrap" id="ew-5">
+            <div class="expense-item" onclick="toggle('ew-5')">
+              <div class="expense-icon">💸</div>
+              <div class="expense-info">
+                <div class="expense-desc">Granada Stay</div>
+                <div class="expense-meta">Paid by <strong>Thulasi</strong> · 5 people · €24.40 each</div>
+              </div>
+              <span class="expense-counter">2/4 repaid</span>
+              <div class="expense-amount">€122.00</div>
+              <span class="expense-chevron">▼</span>
+            </div>
+            <div class="expense-breakdown">
+              <div class="breakdown-row">
+                <span class="breakdown-name">Thulasi <span class="badge badge-paid">paid</span></span>
+                <span style="color:var(--accent2);font-weight:700">+€97.60 to collect</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Nisanth <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€24.40 to Thulasi</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Brendon <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--muted);font-weight:700;text-decoration:line-through">-€24.40 to Thulasi</span>
+                <span class="share-paid-done">✓ Paid</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Souvik <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€24.40 to Thulasi</span>
+              </div>
+              <div class="breakdown-row">
+                <span class="breakdown-name">Rajkumar <span class="badge badge-owes">owes</span></span>
+                <span style="color:var(--danger);font-weight:700">-€24.40 to Thulasi</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right column -->
+      <div>
+        <!-- Balances -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Balances</div>
+          <div class="balance-row">
+            <div class="balance-name">Nisanth</div>
+            <div class="balance-amount pos">+€689.55</div>
+          </div>
+          <div class="balance-row">
+            <div class="balance-name">Brendon</div>
+            <div class="balance-amount zero">€0.00</div>
+          </div>
+          <div class="balance-row">
+            <div class="balance-name">Souvik</div>
+            <div class="balance-amount neg">-€254.25</div>
+          </div>
+          <div class="balance-row">
+            <div class="balance-name">Thulasi</div>
+            <div class="balance-amount neg">-€181.05</div>
+          </div>
+          <div class="balance-row">
+            <div class="balance-name">Rajkumar</div>
+            <div class="balance-amount neg">-€254.25</div>
+          </div>
+        </div>
+
+        <!-- Owed Summary -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Owed Summary</div>
+
+          <!-- Nisanth -->
+          <div class="owed-row">
+            <div class="owed-name">Nisanth is owed <span style="color:var(--accent2)">€689.55</span> <span style="color:var(--muted);font-weight:400;font-size:0.8rem">of €919.40</span></div>
+            <div class="owed-bar-wrap"><div class="owed-bar-fill" style="width:75%"></div></div>
+            <div class="owed-detail"><span>75% collected</span><span>€229.85 received</span></div>
+            <div class="owed-debtor-row">
+              <span>Brendon</span>
+              <span><span class="owed-debtor-paid">€229.85 paid</span> · <span class="owed-debtor-paid">€0.00 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Souvik</span>
+              <span><span class="owed-debtor-paid">€0.00 paid</span> · <span class="owed-debtor-remaining">€229.85 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Thulasi</span>
+              <span><span class="owed-debtor-paid">€0.00 paid</span> · <span class="owed-debtor-remaining">€229.85 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Rajkumar</span>
+              <span><span class="owed-debtor-paid">€0.00 paid</span> · <span class="owed-debtor-remaining">€229.85 left</span></span>
+            </div>
+          </div>
+
+          <!-- Thulasi -->
+          <div class="owed-row">
+            <div class="owed-name">Thulasi is owed <span style="color:var(--accent2)">€48.80</span> <span style="color:var(--muted);font-weight:400;font-size:0.8rem">of €97.60</span></div>
+            <div class="owed-bar-wrap"><div class="owed-bar-fill" style="width:50%"></div></div>
+            <div class="owed-detail"><span>50% collected</span><span>€48.80 received</span></div>
+            <div class="owed-debtor-row">
+              <span>Nisanth</span>
+              <span><span class="owed-debtor-paid">€24.40 paid</span> · <span class="owed-debtor-paid">€0.00 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Brendon</span>
+              <span><span class="owed-debtor-paid">€24.40 paid</span> · <span class="owed-debtor-paid">€0.00 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Souvik</span>
+              <span><span class="owed-debtor-paid">€0.00 paid</span> · <span class="owed-debtor-remaining">€24.40 left</span></span>
+            </div>
+            <div class="owed-debtor-row">
+              <span>Rajkumar</span>
+              <span><span class="owed-debtor-paid">€0.00 paid</span> · <span class="owed-debtor-remaining">€24.40 left</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settlements -->
+        <div class="card">
+          <div class="card-title">Settlements</div>
+          <div class="settlement-item">
+            <span class="s-from">Souvik</span>
+            <span style="color:var(--muted)">owes</span>
+            <span class="s-to">Nisanth</span>
+            <span class="s-amount">€254.25</span>
+          </div>
+          <div class="settlement-item">
+            <span class="s-from">Rajkumar</span>
+            <span style="color:var(--muted)">owes</span>
+            <span class="s-to">Nisanth</span>
+            <span class="s-amount">€254.25</span>
+          </div>
+          <div class="settlement-item">
+            <span class="s-from">Thulasi</span>
+            <span style="color:var(--muted)">owes</span>
+            <span class="s-to">Nisanth</span>
+            <span class="s-amount">€181.05</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggle(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+</script>
+</body>
+</html>
