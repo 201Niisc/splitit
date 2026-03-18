@@ -77,6 +77,15 @@ app.MapPost("/api/groups/{id:guid}/verify-pin", async (Guid id, PinInput input, 
     return Results.Ok(new { ok = match });
 });
 
+app.MapPatch("/api/groups/{id:guid}/pin", async (Guid id, PinInput input, IDataStore db) =>
+{
+    var group = await db.GetGroupByIdAsync(id);
+    if (group is null) return Results.NotFound();
+    var newHash = string.IsNullOrWhiteSpace(input.Pin) ? null : HashPin(input.Pin);
+    await db.SetGroupPinAsync(id, newHash);
+    return Results.Ok();
+});
+
 app.MapDelete("/api/groups/{id:guid}", async (Guid id, IDataStore db) =>
 {
     await db.DeleteGroupAsync(id);
@@ -306,6 +315,7 @@ interface IDataStore
     Task AddPaymentAsync(Payment payment);
     Task DeletePaymentAsync(Guid id);
 
+    Task SetGroupPinAsync(Guid id, string? pinHash);
     Task<long> GetVersionAsync();
 }
 
@@ -424,6 +434,13 @@ class AppData : IDataStore
     {
         _payments.RemoveAll(p => p.Id == id);
         Save();
+        return Task.CompletedTask;
+    }
+
+    public Task SetGroupPinAsync(Guid id, string? pinHash)
+    {
+        var g = _groups.FirstOrDefault(x => x.Id == id);
+        if (g != null) { g.PinHash = pinHash; Save(); }
         return Task.CompletedTask;
     }
 
@@ -876,6 +893,19 @@ class Database : IDataStore
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM payments WHERE id = @id";
+        cmd.Parameters.AddWithValue("id", id);
+        await cmd.ExecuteNonQueryAsync();
+        await BumpVersionAsync(conn);
+    }
+
+    // ── Pin ───────────────────────────────────────────────────
+    public async Task SetGroupPinAsync(Guid id, string? pinHash)
+    {
+        await using var conn = CreateConnection();
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE groups SET pin_hash = @pin WHERE id = @id";
+        cmd.Parameters.AddWithValue("pin", (object?)pinHash ?? DBNull.Value);
         cmd.Parameters.AddWithValue("id", id);
         await cmd.ExecuteNonQueryAsync();
         await BumpVersionAsync(conn);

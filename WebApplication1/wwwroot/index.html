@@ -317,6 +317,21 @@
   </div>
 </div>
 
+<!-- Set PIN Modal -->
+<div class="overlay hidden" id="setPinModal">
+  <div class="modal" style="max-width:360px">
+    <h2>Set Group PIN</h2>
+    <div class="field">
+      <label>New PIN</label>
+      <input id="newPinInput" type="password" placeholder="Leave blank to remove PIN" maxlength="20"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('setPinModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePin()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let groups = [];
 let currentGroup = null;
@@ -330,7 +345,8 @@ let pendingPinGroup = null;
 const api = {
   get: (url) => fetch(url).then(r => r.json()),
   post: (url, data) => fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) }).then(r => r.json()),
-  del: (url) => fetch(url, { method:'DELETE' })
+  del: (url) => fetch(url, { method:'DELETE' }),
+  patch: (url, data) => fetch(url, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) }).then(r => r.json())
 };
 
 // ── Auto-refresh polling ──────────────────────────────────
@@ -397,6 +413,22 @@ async function selectGroup(g) {
   await renderMain();
 }
 
+function openSetPinModal() {
+  document.getElementById('newPinInput').value = '';
+  openModal('setPinModal');
+  setTimeout(() => document.getElementById('newPinInput').focus(), 100);
+}
+
+async function savePin() {
+  const pin = document.getElementById('newPinInput').value;
+  await api.patch(`/api/groups/${currentGroup.id}/pin`, { pin });
+  if (pin) unlockedGroups.add(currentGroup.id);
+  else unlockedGroups.delete(currentGroup.id);
+  closeModal('setPinModal');
+  await init();
+  await renderMain();
+}
+
 async function submitPin() {
   const pin = document.getElementById('pinInput').value;
   if (!pin) return;
@@ -440,6 +472,7 @@ async function renderMain() {
       </div>
       <div style="display:flex;gap:10px">
         <button class="btn btn-success btn-sm" onclick="openExpenseModal()">+ Add Expense</button>
+        <button class="btn btn-ghost btn-sm" onclick="openSetPinModal()">🔒 ${g.hasPin ? 'Change PIN' : 'Set PIN'}</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteGroup('${g.id}')">Delete Group</button>
       </div>
     </div>
