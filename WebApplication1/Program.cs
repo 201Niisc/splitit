@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Npgsql;
 
@@ -48,13 +50,31 @@ app.UseStaticFiles();
 
 // ── Groups ──────────────────────────────────────────────
 app.MapGet("/api/groups", async (IDataStore db) =>
-    Results.Ok(await db.GetGroupsAsync()));
+{
+    var groups = await db.GetGroupsAsync();
+    return Results.Ok(groups.Select(g => new { g.Id, g.Name, g.Members, hasPin = g.PinHash != null }));
+});
 
 app.MapPost("/api/groups", async (GroupInput input, IDataStore db) =>
 {
-    var g = new Group { Id = Guid.NewGuid(), Name = input.Name, Members = input.Members };
+    var g = new Group
+    {
+        Id = Guid.NewGuid(),
+        Name = input.Name,
+        Members = input.Members,
+        PinHash = string.IsNullOrWhiteSpace(input.Pin) ? null : HashPin(input.Pin)
+    };
     await db.AddGroupAsync(g);
-    return Results.Ok(g);
+    return Results.Ok(new { g.Id, g.Name, g.Members, hasPin = g.PinHash != null });
+});
+
+app.MapPost("/api/groups/{id:guid}/verify-pin", async (Guid id, PinInput input, IDataStore db) =>
+{
+    var group = await db.GetGroupByIdAsync(id);
+    if (group is null) return Results.NotFound();
+    if (group.PinHash == null) return Results.Ok(new { ok = true });
+    var match = group.PinHash == HashPin(input.Pin);
+    return Results.Ok(new { ok = match });
 });
 
 app.MapDelete("/api/groups/{id:guid}", async (Guid id, IDataStore db) =>
@@ -215,8 +235,12 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
+static string HashPin(string pin) =>
+    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(pin))).ToLower();
+
 // ── Models ───────────────────────────────────────────────
-record GroupInput(string Name, List<string> Members);
+record GroupInput(string Name, List<string> Members, string? Pin = null);
+record PinInput(string Pin);
 record ExpenseInput(string Description, double Amount, string PaidBy, List<string> SplitAmong);
 record PaymentInput(string From, string To, double Amount);
 record ShareInput(string Person);
@@ -227,6 +251,7 @@ class Group
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
     public List<string> Members { get; set; } = [];
+    public string? PinHash { get; set; }
 }
 
 class Expense
@@ -443,8 +468,10 @@ class Database : IDataStore
                 CREATE TABLE IF NOT EXISTS groups (
                     id UUID PRIMARY KEY,
                     name TEXT NOT NULL,
-                    members TEXT NOT NULL
+                    members TEXT NOT NULL,
+                    pin_hash TEXT NULL
                 );
+                ALTER TABLE groups ADD COLUMN IF NOT EXISTS pin_hash TEXT NULL;
 
                 CREATE TABLE IF NOT EXISTS expenses (
                     id UUID PRIMARY KEY,
@@ -582,7 +609,7 @@ class Database : IDataStore
         await using var conn = CreateConnection();
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, name, members FROM groups ORDER BY name";
+        cmd.CommandText = "SELECT id, name, members, pin_hash FROM groups ORDER BY name";
         await using var reader = await cmd.ExecuteReaderAsync();
         var result = new List<Group>();
         while (await reader.ReadAsync())
@@ -591,7 +618,8 @@ class Database : IDataStore
             {
                 Id = reader.GetGuid(0),
                 Name = reader.GetString(1),
-                Members = JsonSerializer.Deserialize<List<string>>(reader.GetString(2)) ?? []
+                Members = JsonSerializer.Deserialize<List<string>>(reader.GetString(2)) ?? [],
+                PinHash = reader.IsDBNull(3) ? null : reader.GetString(3)
             });
         }
         return result;
@@ -602,7 +630,7 @@ class Database : IDataStore
         await using var conn = CreateConnection();
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, name, members FROM groups WHERE id = @id";
+        cmd.CommandText = "SELECT id, name, members, pin_hash FROM groups WHERE id = @id";
         cmd.Parameters.AddWithValue("id", id);
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) return null;
@@ -610,7 +638,8 @@ class Database : IDataStore
         {
             Id = reader.GetGuid(0),
             Name = reader.GetString(1),
-            Members = JsonSerializer.Deserialize<List<string>>(reader.GetString(2)) ?? []
+            Members = JsonSerializer.Deserialize<List<string>>(reader.GetString(2)) ?? [],
+            PinHash = reader.IsDBNull(3) ? null : reader.GetString(3)
         };
     }
 
@@ -619,10 +648,11 @@ class Database : IDataStore
         await using var conn = CreateConnection();
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO groups (id, name, members) VALUES (@id, @name, @members)";
+        cmd.CommandText = "INSERT INTO groups (id, name, members, pin_hash) VALUES (@id, @name, @members, @pin)";
         cmd.Parameters.AddWithValue("id", group.Id);
         cmd.Parameters.AddWithValue("name", group.Name);
         cmd.Parameters.AddWithValue("members", JsonSerializer.Serialize(group.Members));
+        cmd.Parameters.AddWithValue("pin", (object?)group.PinHash ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
         await BumpVersionAsync(conn);
     }

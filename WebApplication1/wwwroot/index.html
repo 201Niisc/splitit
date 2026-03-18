@@ -262,9 +262,30 @@
         <input id="memberInput" type="text" placeholder="Type a name and press Enter"/>
       </div>
     </div>
+    <div class="field">
+      <label>PIN (optional)</label>
+      <input id="gPin" type="password" placeholder="Set a PIN to protect this group" maxlength="20"/>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('groupModal')">Cancel</button>
       <button class="btn btn-primary" onclick="createGroup()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN Modal -->
+<div class="overlay hidden" id="pinModal">
+  <div class="modal" style="max-width:340px;text-align:center">
+    <div style="font-size:2rem;margin-bottom:8px">🔒</div>
+    <h2 style="margin-bottom:6px" id="pinModalTitle">Enter PIN</h2>
+    <p style="color:var(--muted);font-size:0.85rem;margin-bottom:20px" id="pinModalSub">This group is PIN protected</p>
+    <input id="pinInput" type="password" placeholder="Enter PIN" maxlength="20"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:1rem;outline:none;text-align:center;letter-spacing:4px"
+      onkeydown="if(event.key==='Enter')submitPin()"/>
+    <div id="pinError" style="color:var(--danger);font-size:0.8rem;margin-top:8px;min-height:18px"></div>
+    <div class="modal-actions" style="justify-content:center;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('pinModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPin()">Unlock</button>
     </div>
   </div>
 </div>
@@ -302,6 +323,8 @@ let currentGroup = null;
 let members = [];
 let lastVersion = -1;
 const icons = ['🏖️','🏕️','🎉','🍕','🏠','✈️','🎮','🛒','🍺','🎶'];
+const unlockedGroups = new Set(); // group ids that have been PIN-verified this session
+let pendingPinGroup = null;
 
 // ── API helpers ──────────────────────────────────────────
 const api = {
@@ -349,8 +372,8 @@ function renderSidebar() {
   list.innerHTML = groups.map((g, i) => `
     <div class="group-item ${currentGroup?.id === g.id ? 'active' : ''}" onclick="selectGroup(${JSON.stringify(g).replace(/"/g,'&quot;')})">
       <div class="group-icon">${icons[i % icons.length]}</div>
-      <div>
-        <div class="group-name">${esc(g.name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="group-name">${esc(g.name)} ${g.hasPin && !unlockedGroups.has(g.id) ? '<span style="font-size:0.75rem">🔒</span>' : ''}</div>
         <div class="group-count">${g.members.length} members</div>
       </div>
     </div>
@@ -359,10 +382,34 @@ function renderSidebar() {
 
 // ── Select group ──────────────────────────────────────────
 async function selectGroup(g) {
+  if (g.hasPin && !unlockedGroups.has(g.id)) {
+    pendingPinGroup = g;
+    document.getElementById('pinModalTitle').textContent = esc(g.name);
+    document.getElementById('pinInput').value = '';
+    document.getElementById('pinError').textContent = '';
+    openModal('pinModal');
+    setTimeout(() => document.getElementById('pinInput').focus(), 100);
+    return;
+  }
   currentGroup = g;
   closeSidebar();
   renderSidebar();
   await renderMain();
+}
+
+async function submitPin() {
+  const pin = document.getElementById('pinInput').value;
+  if (!pin) return;
+  const res = await api.post(`/api/groups/${pendingPinGroup.id}/verify-pin`, { pin });
+  if (res.ok) {
+    unlockedGroups.add(pendingPinGroup.id);
+    closeModal('pinModal');
+    await selectGroup(pendingPinGroup);
+  } else {
+    document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
+    document.getElementById('pinInput').value = '';
+    document.getElementById('pinInput').focus();
+  }
 }
 
 async function renderMain() {
@@ -538,9 +585,12 @@ async function createGroup() {
   const pending = memberInput.value.trim();
   if (pending && !members.includes(pending)) { members.push(pending); memberInput.value = ''; }
   if (!name || members.length < 2) { alert('Enter a group name and at least 2 members.'); return; }
-  await api.post('/api/groups', { name, members });
+  const pin = document.getElementById('gPin').value.trim() || null;
+  const newGroup = await api.post('/api/groups', { name, members, pin });
+  if (pin) unlockedGroups.add(newGroup.id);
   closeModal('groupModal');
   document.getElementById('gName').value = '';
+  document.getElementById('gPin').value = '';
   members = [];
   renderTags();
   await init();
