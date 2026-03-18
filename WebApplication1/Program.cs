@@ -471,7 +471,7 @@ class Database : IDataStore
         _connStr = connStr;
     }
 
-    private NpgsqlConnection CreateConnection() => new NpgsqlConnection(_connStr);
+    private NpgsqlConnection CreateConnection() => new NpgsqlConnection(_connStr + ";Timeout=10;Command Timeout=10");
 
     public async Task InitializeAsync()
     {
