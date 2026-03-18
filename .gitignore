@@ -3,4 +3,3 @@ obj/
 *.user
 .vs/
 appsettings.Development.json
-WebApplication1/data.json
