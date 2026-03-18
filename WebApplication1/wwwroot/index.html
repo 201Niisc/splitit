@@ -403,6 +403,7 @@ function renderSidebar() {
 
 // ── Select group ──────────────────────────────────────────
 async function selectGroup(g) {
+  if (currentGroup && currentGroup.id !== g.id) unlockedGroups.delete(currentGroup.id);
   if (g.hasPin && !unlockedGroups.has(g.id)) {
     pendingPinGroup = g;
     document.getElementById('pinModalTitle').textContent = esc(g.name);
