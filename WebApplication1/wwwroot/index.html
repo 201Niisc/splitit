@@ -198,6 +198,12 @@
   .tag-input input::placeholder { color: var(--muted); }
 
   .no-group { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--muted); }
+  .undo-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 20px; display: flex; align-items: center; gap: 12px; z-index: 200;
+    box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity 0.25s;
+    white-space: nowrap; }
+  .undo-toast.show { opacity: 1; pointer-events: auto; }
 
   /* Mobile hamburger */
   .hamburger { display: none; background: none; border: none; color: var(--text); font-size: 1.4rem;
@@ -234,6 +240,10 @@
 </style>
 </head>
 <body>
+<div class="undo-toast" id="undoToast">
+  <span id="undoToastMsg"></span>
+  <button class="btn btn-ghost btn-sm" onclick="doUndo()">↩ Undo</button>
+</div>
 <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
 <div class="app">
   <!-- Sidebar -->
@@ -321,6 +331,23 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('expenseModal')">Cancel</button>
       <button class="btn btn-success" onclick="addExpense()">Add Expense</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Group Confirm Modal -->
+<div class="overlay hidden" id="deleteGroupModal">
+  <div class="modal" style="max-width:340px;text-align:center">
+    <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+    <h2 style="margin-bottom:6px">Delete Group?</h2>
+    <p style="color:var(--muted);font-size:0.85rem;margin-bottom:20px">This will permanently delete all expenses and payments. Enter PIN <strong>0000</strong> to confirm.</p>
+    <input id="deleteGroupPin" type="password" placeholder="Enter PIN" maxlength="10"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:1rem;outline:none;text-align:center;letter-spacing:4px"
+      onkeydown="if(event.key==='Enter')submitDeleteGroup()"/>
+    <div id="deleteGroupError" style="color:var(--danger);font-size:0.8rem;margin-top:8px;min-height:18px"></div>
+    <div class="modal-actions" style="justify-content:center;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('deleteGroupModal')">Cancel</button>
+      <button class="btn btn-primary" style="background:var(--danger);border-color:var(--danger)" onclick="submitDeleteGroup()">Delete</button>
     </div>
   </div>
 </div>
@@ -510,9 +537,17 @@ async function saveExpense() {
   if (!desc || isNaN(amount) || amount <= 0 || splitAmong.length === 0) {
     alert('Fill in all fields and select at least one person.'); return;
   }
+  const prev = { ...editingExpense };
   await api.patch(`/api/expenses/${editingExpense.id}`, { description: desc, amount, paidBy, splitAmong });
   closeModal('editExpenseModal');
   await renderMain();
+  showUndoToast('Expense updated', async () => {
+    await api.patch(`/api/expenses/${prev.id}`, {
+      description: prev.description, amount: prev.amount,
+      paidBy: prev.paidBy, splitAmong: prev.splitAmong
+    });
+    await renderMain();
+  });
 }
 
 async function renderMain() {
@@ -545,7 +580,7 @@ async function renderMain() {
       <div style="display:flex;gap:10px">
         <button class="btn btn-success btn-sm" onclick="openExpenseModal()">+ Add Expense</button>
         <button class="btn btn-ghost btn-sm" onclick="openSetPinModal()">🔒 ${g.hasPin ? 'Change PIN' : 'Set PIN'}</button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteGroup('${g.id}')">Delete Group</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="confirmDeleteGroup('${g.id}')">Delete Group</button>
       </div>
     </div>
     <div class="content">
@@ -703,9 +738,26 @@ async function createGroup() {
   selectGroup(groups[groups.length - 1]);
 }
 
-async function deleteGroup(id) {
-  if (!confirm('Delete this group and all its expenses?')) return;
-  await api.del(`/api/groups/${id}`);
+let _pendingDeleteGroupId = null;
+
+function confirmDeleteGroup(id) {
+  _pendingDeleteGroupId = id;
+  document.getElementById('deleteGroupPin').value = '';
+  document.getElementById('deleteGroupError').textContent = '';
+  openModal('deleteGroupModal');
+  setTimeout(() => document.getElementById('deleteGroupPin').focus(), 100);
+}
+
+async function submitDeleteGroup() {
+  const pin = document.getElementById('deleteGroupPin').value;
+  if (pin !== '0000') {
+    document.getElementById('deleteGroupError').textContent = 'Incorrect PIN.';
+    document.getElementById('deleteGroupPin').value = '';
+    document.getElementById('deleteGroupPin').focus();
+    return;
+  }
+  closeModal('deleteGroupModal');
+  await api.del(`/api/groups/${_pendingDeleteGroupId}`);
   currentGroup = null;
   document.getElementById('mainArea').innerHTML = '<div class="no-group">← Create or select a group</div>';
   await init();
@@ -744,8 +796,18 @@ function toggleExpense(id) {
 }
 
 async function deleteExpense(id) {
+  const expense = currentExpenses.find(x => x.id === id);
   await api.del(`/api/expenses/${id}`);
   await renderMain();
+  if (expense) {
+    showUndoToast(`"${expense.description}" deleted`, async () => {
+      await api.post(`/api/groups/${currentGroup.id}/expenses`, {
+        description: expense.description, amount: expense.amount,
+        paidBy: expense.paidBy, splitAmong: expense.splitAmong
+      });
+      await renderMain();
+    });
+  }
 }
 
 // ── Expense Shares ────────────────────────────────────────
@@ -778,6 +840,25 @@ function openSidebar() {
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebarBackdrop').classList.remove('open');
+}
+
+// ── Undo toast ────────────────────────────────────────────
+let _undoFn = null;
+let _undoTimer = null;
+
+function showUndoToast(message, fn) {
+  _undoFn = fn;
+  document.getElementById('undoToastMsg').textContent = message;
+  const t = document.getElementById('undoToast');
+  t.classList.add('show');
+  clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(() => { t.classList.remove('show'); _undoFn = null; }, 6000);
+}
+
+async function doUndo() {
+  if (_undoFn) { await _undoFn(); _undoFn = null; }
+  document.getElementById('undoToast').classList.remove('show');
+  clearTimeout(_undoTimer);
 }
 
 // ── Modal helpers ─────────────────────────────────────────
