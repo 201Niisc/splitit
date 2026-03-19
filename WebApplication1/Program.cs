@@ -118,6 +118,12 @@ app.MapDelete("/api/expenses/{id:guid}", async (Guid id, IDataStore db) =>
     return Results.Ok();
 });
 
+app.MapPatch("/api/expenses/{id:guid}", async (Guid id, ExpenseUpdateInput input, IDataStore db) =>
+{
+    await db.UpdateExpenseAsync(id, input);
+    return Results.Ok();
+});
+
 // ── Expense Shares (per-person paid-back tracking) ────────
 app.MapGet("/api/groups/{id:guid}/expense-shares", async (Guid id, IDataStore db) =>
     Results.Ok(await db.GetExpenseSharesAsync(id)));
@@ -254,6 +260,7 @@ record ExpenseInput(string Description, double Amount, string PaidBy, List<strin
 record PaymentInput(string From, string To, double Amount);
 record ShareInput(string Person);
 record Settlement(string From, string To, double Amount);
+record ExpenseUpdateInput(string Description, double Amount, string PaidBy, List<string> SplitAmong);
 
 class Group
 {
@@ -305,6 +312,7 @@ interface IDataStore
     Task<Expense?> GetExpenseByIdAsync(Guid id);
     Task AddExpenseAsync(Expense expense);
     Task DeleteExpenseAsync(Guid id);
+    Task UpdateExpenseAsync(Guid id, ExpenseUpdateInput update);
 
     Task<List<ExpenseShare>> GetExpenseSharesAsync(Guid groupId);
     Task<List<ExpenseShare>> GetExpenseSharesForExpenseAsync(Guid expenseId);
@@ -397,6 +405,13 @@ class AppData : IDataStore
         _expenses.RemoveAll(e => e.Id == id);
         _expenseShares.RemoveAll(s => s.ExpenseId == id);
         Save();
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateExpenseAsync(Guid id, ExpenseUpdateInput update)
+    {
+        var e = _expenses.FirstOrDefault(x => x.Id == id);
+        if (e != null) { e.Description = update.Description; e.Amount = update.Amount; e.PaidBy = update.PaidBy; e.SplitAmong = update.SplitAmong; Save(); }
         return Task.CompletedTask;
     }
 
@@ -779,6 +794,21 @@ class Database : IDataStore
         }
         await BumpVersionAsync(conn);
         await tx.CommitAsync();
+    }
+
+    public async Task UpdateExpenseAsync(Guid id, ExpenseUpdateInput update)
+    {
+        await using var conn = CreateConnection();
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE expenses SET description = @desc, amount = @amt, paid_by = @paidby, split_among = @split WHERE id = @id";
+        cmd.Parameters.AddWithValue("desc", update.Description);
+        cmd.Parameters.AddWithValue("amt", update.Amount);
+        cmd.Parameters.AddWithValue("paidby", update.PaidBy);
+        cmd.Parameters.AddWithValue("split", JsonSerializer.Serialize(update.SplitAmong));
+        cmd.Parameters.AddWithValue("id", id);
+        await cmd.ExecuteNonQueryAsync();
+        await BumpVersionAsync(conn);
     }
 
     // ── Expense Shares ────────────────────────────────────────

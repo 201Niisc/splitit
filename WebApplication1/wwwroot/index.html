@@ -73,6 +73,9 @@
   .expense-delete { background: none; border: none; color: var(--muted); cursor: pointer;
     padding: 4px 8px; border-radius: 6px; font-size: 0.9rem; transition: color 0.15s; }
   .expense-delete:hover { color: var(--danger); }
+  .expense-edit { background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; font-size: 0.9rem; transition: color 0.15s; }
+  .expense-edit:hover { color: var(--accent); }
 
   /* Expense breakdown */
   .expense-breakdown { display: none; background: var(--surface2); border-radius: 8px;
@@ -322,6 +325,33 @@
   </div>
 </div>
 
+<!-- Edit Expense Modal -->
+<div class="overlay hidden" id="editExpenseModal">
+  <div class="modal">
+    <h2>Edit Expense</h2>
+    <div class="field">
+      <label>Description</label>
+      <input id="editDesc" type="text" placeholder="e.g. Dinner at Luigi's"/>
+    </div>
+    <div class="field">
+      <label>Amount (€)</label>
+      <input id="editAmount" type="number" min="0.01" step="0.01" placeholder="0.00"/>
+    </div>
+    <div class="field">
+      <label>Paid By</label>
+      <select id="editPaidBy"></select>
+    </div>
+    <div class="field">
+      <label>Split Among</label>
+      <div class="checkbox-group" id="editSplitAmong"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('editExpenseModal')">Cancel</button>
+      <button class="btn btn-success" onclick="saveExpense()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Set PIN Modal -->
 <div class="overlay hidden" id="setPinModal">
   <div class="modal" style="max-width:360px">
@@ -345,6 +375,8 @@ let lastVersion = -1;
 const icons = ['🏖️','🏕️','🎉','🍕','🏠','✈️','🎮','🛒','🍺','🎶'];
 const unlockedGroups = new Set(); // group ids that have been PIN-verified this session
 let pendingPinGroup = null;
+let editingExpense = null;
+let currentExpenses = [];
 
 // ── API helpers ──────────────────────────────────────────
 const api = {
@@ -450,6 +482,39 @@ async function submitPin() {
   }
 }
 
+function openEditModal(id) {
+  const e = currentExpenses.find(x => x.id === id);
+  if (!e) return;
+  editingExpense = e;
+  const g = currentGroup;
+  document.getElementById('editDesc').value = e.description;
+  document.getElementById('editAmount').value = e.amount;
+  document.getElementById('editPaidBy').innerHTML = g.members.map(m =>
+    `<option ${m === e.paidBy ? 'selected' : ''}>${esc(m)}</option>`
+  ).join('');
+  document.getElementById('editSplitAmong').innerHTML = g.members.map(m => `
+    <label class="checkbox-chip ${e.splitAmong.includes(m) ? 'checked' : ''}">
+      <input type="checkbox" value="${esc(m)}" ${e.splitAmong.includes(m) ? 'checked' : ''}
+        onchange="this.parentElement.classList.toggle('checked',this.checked)"/>
+      ${esc(m)}
+    </label>
+  `).join('');
+  openModal('editExpenseModal');
+}
+
+async function saveExpense() {
+  const desc = document.getElementById('editDesc').value.trim();
+  const amount = parseFloat(document.getElementById('editAmount').value);
+  const paidBy = document.getElementById('editPaidBy').value;
+  const splitAmong = [...document.querySelectorAll('#editSplitAmong input:checked')].map(c => c.value);
+  if (!desc || isNaN(amount) || amount <= 0 || splitAmong.length === 0) {
+    alert('Fill in all fields and select at least one person.'); return;
+  }
+  await api.patch(`/api/expenses/${editingExpense.id}`, { description: desc, amount, paidBy, splitAmong });
+  closeModal('editExpenseModal');
+  await renderMain();
+}
+
 async function renderMain() {
   const g = currentGroup;
   if (!g) return;
@@ -459,6 +524,7 @@ async function renderMain() {
     api.get(`/api/groups/${g.id}/payments`),
     api.get(`/api/groups/${g.id}/expense-shares`)
   ]);
+  currentExpenses = expenses;
   // Map: expenseId -> { person -> shareId }
   const shareMap = {};
   for (const s of expShares) {
@@ -526,6 +592,7 @@ async function renderMain() {
                   ${counterLabel}
                   <div class="expense-amount">€${e.amount.toFixed(2)}</div>
                   <span class="expense-chevron">▼</span>
+                  <button class="expense-edit" onclick="event.stopPropagation();openEditModal('${e.id}')">✎</button>
                   <button class="expense-delete" onclick="event.stopPropagation();deleteExpense('${e.id}')">✕</button>
                 </div>
                 <div class="expense-breakdown">${rows}</div>
@@ -534,17 +601,6 @@ async function renderMain() {
         </div>
       </div>
       <div>
-        <div class="card" style="margin-bottom:20px">
-          <div class="card-title">Balances</div>
-          ${Object.entries(balData.balances).map(([name, amt]) => `
-            <div class="balance-row">
-              <div class="balance-name">${esc(name)}</div>
-              <div class="balance-amount ${amt > 0.005 ? 'pos' : amt < -0.005 ? 'neg' : 'zero'}">
-                ${amt >= 0 ? '+' : ''}€${Math.abs(amt).toFixed(2)}
-              </div>
-            </div>
-          `).join('')}
-        </div>
         <div class="card" style="margin-bottom:20px">
           <div class="card-title">Owed Summary</div>
           ${(() => {
@@ -585,6 +641,17 @@ async function renderMain() {
               </div>`;
             }).join('');
           })()}
+        </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Balances</div>
+          ${Object.entries(balData.balances).map(([name, amt]) => `
+            <div class="balance-row">
+              <div class="balance-name">${esc(name)}</div>
+              <div class="balance-amount ${amt > 0.005 ? 'pos' : amt < -0.005 ? 'neg' : 'zero'}">
+                ${amt >= 0 ? '+' : ''}€${Math.abs(amt).toFixed(2)}
+              </div>
+            </div>
+          `).join('')}
         </div>
         <div class="card">
           <div class="card-title">Settlements</div>
