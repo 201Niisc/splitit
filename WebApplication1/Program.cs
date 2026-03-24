@@ -216,22 +216,56 @@ app.MapGet("/api/groups/{id:guid}/balances", async (Guid id, IDataStore db) =>
         balances[pay.To] -= pay.Amount;
     }
 
-    // Simplify remaining debts
-    var settlements = new List<Settlement>();
-    var posArr = balances.Where(b => b.Value > 0.005).OrderByDescending(b => b.Value).Select(p => (p.Key, p.Value)).ToList();
-    var negArr = balances.Where(b => b.Value < -0.005).OrderBy(b => b.Value).Select(p => (p.Key, p.Value)).ToList();
+    // Pair-wise debts: how much each person owes each other directly from expenses
+    var pairDebt = new Dictionary<(string, string), double>();
 
-    int i = 0, j = 0;
-    while (i < posArr.Count && j < negArr.Count)
+    foreach (var exp in expenses)
     {
-        var (creditor, credit) = posArr[i];
-        var (debtor, debt) = negArr[j];
-        double amount = Math.Min(credit, -debt);
-        settlements.Add(new Settlement(debtor, creditor, Math.Round(amount, 2)));
-        posArr[i] = (creditor, credit - amount);
-        negArr[j] = (debtor, debt + amount);
-        if (posArr[i].Item2 < 0.005) i++;
-        if (-negArr[j].Item2 < 0.005) j++;
+        double share = exp.Amount / exp.SplitAmong.Count;
+        foreach (var m in exp.SplitAmong)
+        {
+            if (m == exp.PaidBy) continue;
+            var key = (m, exp.PaidBy);
+            pairDebt[key] = pairDebt.GetValueOrDefault(key, 0) + share;
+        }
+    }
+
+    // Mark-as-paid reduces pair debt
+    foreach (var s in expenseShares)
+    {
+        var exp = expenses.FirstOrDefault(e => e.Id == s.ExpenseId);
+        if (exp is null) continue;
+        double share = exp.Amount / exp.SplitAmong.Count;
+        var key = (s.Person, exp.PaidBy);
+        pairDebt[key] = pairDebt.GetValueOrDefault(key, 0) - share;
+    }
+
+    // Logged payments reduce pair debt
+    foreach (var pay in payments)
+    {
+        var key = (pay.From, pay.To);
+        pairDebt[key] = pairDebt.GetValueOrDefault(key, 0) - pay.Amount;
+    }
+
+    // Net each pair into a single settlement
+    var settlements = new List<Settlement>();
+    var processed = new HashSet<string>();
+
+    foreach (var key in pairDebt.Keys.ToList())
+    {
+        var (a, b) = key;
+        var pairKey = string.Join("|", new[] { a, b }.OrderBy(x => x));
+        if (processed.Contains(pairKey)) continue;
+        processed.Add(pairKey);
+
+        double aOwesB = pairDebt.GetValueOrDefault((a, b), 0);
+        double bOwesA = pairDebt.GetValueOrDefault((b, a), 0);
+        double net = aOwesB - bOwesA;
+
+        if (net > 0.005)
+            settlements.Add(new Settlement(a, b, Math.Round(net, 2)));
+        else if (net < -0.005)
+            settlements.Add(new Settlement(b, a, Math.Round(-net, 2)));
     }
 
     return Results.Ok(new
