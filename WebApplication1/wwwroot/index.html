@@ -823,7 +823,17 @@ async function unmarkShare(shareId) {
 
 // ── Payments ──────────────────────────────────────────────
 async function markPaid(from, to, amount) {
-  await api.post(`/api/groups/${currentGroup.id}/payments`, { from, to, amount });
+  const expenses = await api.get(`/api/groups/${currentGroup.id}/expenses`);
+  const promises = [];
+  for (const e of expenses) {
+    // Expenses paid by `to` where `from` owes → mark from's share paid
+    if (e.paidBy === to && e.splitAmong.includes(from))
+      promises.push(api.post(`/api/expenses/${e.id}/shares`, { person: from }));
+    // Expenses paid by `from` where `to` owes (reverse side of net) → mark to's share paid
+    if (e.paidBy === from && e.splitAmong.includes(to))
+      promises.push(api.post(`/api/expenses/${e.id}/shares`, { person: to }));
+  }
+  await Promise.all(promises);
   await renderMain();
 }
 
