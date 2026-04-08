@@ -639,39 +639,23 @@ async function renderMain() {
         <div class="card" style="margin-bottom:20px">
           <div class="card-title">Owed Summary</div>
           ${(() => {
-            const owedMap = {};
-            for (const e of expenses) {
-              const share = e.amount / e.splitAmong.length;
-              for (const m of e.splitAmong) {
-                if (m === e.paidBy) continue;
-                if (!owedMap[e.paidBy]) owedMap[e.paidBy] = {};
-                if (!owedMap[e.paidBy][m]) owedMap[e.paidBy][m] = { total: 0, paid: 0 };
-                owedMap[e.paidBy][m].total += share;
-                if (shareMap[e.id]?.[m]) owedMap[e.paidBy][m].paid += share;
-              }
+            // Build from pair-wise settlements: group by creditor
+            const owedByCreditor = {};
+            for (const s of balData.settlements) {
+              if (!owedByCreditor[s.to]) owedByCreditor[s.to] = [];
+              owedByCreditor[s.to].push({ from: s.from, amount: s.amount });
             }
-            if (Object.keys(owedMap).length === 0)
+            if (Object.keys(owedByCreditor).length === 0)
               return '<div class="empty"><div class="empty-icon">💰</div><p>No debts</p></div>';
-            return Object.entries(owedMap).map(([payer, debtors]) => {
-              const totalOwed = Object.values(debtors).reduce((s, d) => s + d.total, 0);
-              const totalPaid = Object.values(debtors).reduce((s, d) => s + d.paid, 0);
-              const remaining = totalOwed - totalPaid;
-              const pct = totalOwed > 0 ? Math.round((totalPaid / totalOwed) * 100) : 0;
-              const debtorRows = Object.entries(debtors).map(([debtor, d]) => {
-                const rem = d.total - d.paid;
-                return `<div class="owed-debtor-row">
-                  <span>${esc(debtor)}</span>
-                  <span>
-                    <span class="owed-debtor-paid">€${d.paid.toFixed(2)} paid</span>
-                    &nbsp;·&nbsp;
-                    <span class="${rem > 0.005 ? 'owed-debtor-remaining' : 'owed-debtor-paid'}">€${rem.toFixed(2)} left</span>
-                  </span>
-                </div>`;
-              }).join('');
+            return Object.entries(owedByCreditor).map(([creditor, debtors]) => {
+              const total = debtors.reduce((s, d) => s + d.amount, 0);
+              const debtorRows = debtors.map(d => `
+                <div class="owed-debtor-row">
+                  <span>${esc(d.from)}</span>
+                  <span class="owed-debtor-remaining">owes €${d.amount.toFixed(2)}</span>
+                </div>`).join('');
               return `<div class="owed-row">
-                <div class="owed-name">${esc(payer)} is owed <span style="color:var(--accent2)">€${remaining.toFixed(2)}</span> <span style="color:var(--muted);font-weight:400;font-size:0.8rem">of €${totalOwed.toFixed(2)}</span></div>
-                <div class="owed-bar-wrap"><div class="owed-bar-fill" style="width:${pct}%"></div></div>
-                <div class="owed-detail"><span>${pct}% collected</span><span>€${totalPaid.toFixed(2)} received</span></div>
+                <div class="owed-name">${esc(creditor)} is owed <span style="color:var(--accent2)">€${total.toFixed(2)}</span></div>
                 ${debtorRows}
               </div>`;
             }).join('');
