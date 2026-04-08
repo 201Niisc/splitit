@@ -639,24 +639,24 @@ async function renderMain() {
         <div class="card" style="margin-bottom:20px">
           <div class="card-title">Owed Summary</div>
           ${(() => {
-            // Build from pair-wise settlements: group by creditor
-            const owedByCreditor = {};
-            for (const s of balData.settlements) {
-              if (!owedByCreditor[s.to]) owedByCreditor[s.to] = [];
-              owedByCreditor[s.to].push({ from: s.from, amount: s.amount });
-            }
-            if (Object.keys(owedByCreditor).length === 0)
+            if (balData.settlements.length === 0)
               return '<div class="empty"><div class="empty-icon">💰</div><p>No debts</p></div>';
-            return Object.entries(owedByCreditor).map(([creditor, debtors]) => {
-              const total = debtors.reduce((s, d) => s + d.amount, 0);
-              const debtorRows = debtors.map(d => `
+            // Group by creditor (who is owed), show all debtors and collective total
+            const byCreditor = {};
+            for (const s of balData.settlements) {
+              if (!byCreditor[s.to]) byCreditor[s.to] = [];
+              byCreditor[s.to].push({ name: s.from, amount: s.amount });
+            }
+            return Object.entries(byCreditor).map(([creditor, debtors]) => {
+              const total = debtors.reduce((sum, d) => sum + d.amount, 0);
+              const rows = debtors.map(d => `
                 <div class="owed-debtor-row">
-                  <span>${esc(d.from)}</span>
-                  <span class="owed-debtor-remaining">owes €${d.amount.toFixed(2)}</span>
+                  <span>${esc(d.name)} owes</span>
+                  <span class="owed-debtor-remaining">€${d.amount.toFixed(2)}</span>
                 </div>`).join('');
               return `<div class="owed-row">
-                <div class="owed-name">${esc(creditor)} is owed <span style="color:var(--accent2)">€${total.toFixed(2)}</span></div>
-                ${debtorRows}
+                <div class="owed-name">${esc(creditor)} is owed <span style="color:var(--accent2)">€${total.toFixed(2)}</span> in total</div>
+                ${rows}
               </div>`;
             }).join('');
           })()}
