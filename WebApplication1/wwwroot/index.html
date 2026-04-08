@@ -662,6 +662,42 @@ async function renderMain() {
           })()}
         </div>
         <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Debt Chains</div>
+          ${(() => {
+            // Build map: person -> [{to, amount}] (who they owe)
+            const debtMap = {};
+            for (const s of balData.settlements) {
+              if (!debtMap[s.from]) debtMap[s.from] = [];
+              debtMap[s.from].push({ to: s.to, amount: s.amount });
+            }
+            // Find chains: A owes B, B owes C => A transitively owes C
+            const chains = [];
+            for (const s of balData.settlements) {
+              const { from: a, to: b, amount: abAmt } = s;
+              if (!debtMap[b]) continue;
+              for (const { to: c, amount: bcAmt } of debtMap[b]) {
+                if (c === a) continue; // skip circular
+                chains.push({ a, b, c, amount: Math.min(abAmt, bcAmt) });
+              }
+            }
+            if (chains.length === 0)
+              return '<div class="empty"><div class="empty-icon">🔗</div><p>No debt chains</p></div>';
+            return chains.map(ch => `
+              <div class="settlement-item" style="flex-wrap:wrap;gap:6px">
+                <span class="s-from">${esc(ch.a)}</span>
+                <span style="color:var(--muted)">owes</span>
+                <span class="s-from">${esc(ch.b)}</span>
+                <span style="color:var(--muted)">who owes</span>
+                <span class="s-to">${esc(ch.c)}</span>
+                <span style="color:var(--muted)">— so</span>
+                <span class="s-from">${esc(ch.a)}</span>
+                <span style="color:var(--muted)">effectively owes</span>
+                <span class="s-to">${esc(ch.c)}</span>
+                <span class="s-amount">€${ch.amount.toFixed(2)}</span>
+              </div>`).join('');
+          })()}
+        </div>
+        <div class="card" style="margin-bottom:20px">
           <div class="card-title">Balances</div>
           ${Object.entries(balData.balances).map(([name, amt]) => `
             <div class="balance-row">
